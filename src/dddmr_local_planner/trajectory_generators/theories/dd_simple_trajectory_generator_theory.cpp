@@ -247,6 +247,7 @@ void DDSimpleTrajectoryGeneratorTheory::initialise(){
   Eigen::Vector3f acc_lim = limits_->getAccLimits();
   next_sample_index_ = 0;
   sample_params_.clear();
+  if(!prepareCuboid(params_->cuboid)){return;}
 
   double min_vel_x = limits_->min_vel_x;
   double max_vel_x = limits_->max_vel_x;
@@ -432,7 +433,7 @@ bool DDSimpleTrajectoryGeneratorTheory::generateTrajectory(
     ros_pose.pose.orientation = trans_gbl2traj_.transform.rotation;
 
     pcl::PointCloud<pcl::PointXYZ> pc_out;
-    pcl::transformPointCloud(params_->cuboid, pc_out, trans_gbl2traj_af3);
+    pcl::transformPointCloud(effective_cuboid_, pc_out, trans_gbl2traj_af3);
     
     base_trajectory::cuboid_min_max_t cuboid_min_max;
     pcl::getMinMax3D(pc_out, cuboid_min_max.first, cuboid_min_max.second);

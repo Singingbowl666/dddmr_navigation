@@ -1,0 +1,257 @@
+# Navigation parameters for X30 with external ig_loc localization.
+# ig_loc/ros1_bridge provides localization TF. X30 /leg_odom provides
+# body-frame velocity feedback independently of the localization pose.
+
+p2p_move_base:
+  ros__parameters:
+    controller_frequency: 10.0
+    planner_patience: 10.0
+    oscillation_distance: 5.0
+    oscillation_angle: 1.0
+    oscillation_patience: 15.0
+    controller_patience: 10.0
+    no_plan_retry_num: 10
+    waiting_patience: 10.0
+    main_trajectory_generator: "differential_drive_simple"
+
+global_plan_manager:
+  ros__parameters:
+    global_planner_action_name: "get_dwa_plan"
+    global_plan_query_frequency: 5.0
+
+local_planner:
+  ros__parameters:
+    odom_topic: "/leg_odom"
+    forward_prune: 3.0
+    backward_prune: 1.0
+    heading_tracking_distance: 0.5
+    heading_align_angle: 0.5
+    prune_plane_timeout: 3.0
+    # Goals remain on the ground; arrival compares horizontal distance to
+    # base_link and allows varying body clearance up to 1 m.
+    xy_goal_tolerance: 0.3
+    ground_goal_max_height: 1.0
+    ground_cuboid_clearance: 0.05
+    ground_search_radius: 0.6
+    ground_max_base_height: 1.0
+    yaw_goal_tolerance: 0.3
+    controller_frequency: 10.0
+    # About 1 m body length: collision envelope includes 20 cm at each end for the leg envelope.
+    # Width includes a 4 cm allowance per side over the previous envelope.
+    # Upper face is 0.3 m above body center;
+    # the lower face follows ground at runtime. -0.46 is its reference value.
+    cuboid:
+      flb: [0.70, 0.40, -0.46]
+      frb: [0.70, -0.40, -0.46]
+      flt: [0.70, 0.40, 0.3]
+      frt: [0.70, -0.40, 0.3]
+      blb: [-0.70, 0.40, -0.46]
+      brb: [-0.70, -0.40, -0.46]
+      blt: [-0.70, 0.40, 0.3]
+      brt: [-0.70, -0.40, 0.3]
+
+recovery_behaviors:
+  ros__parameters:
+    odom_topic: "/leg_odom"
+    plugins: ["rotate_inplace"]
+    rotate_inplace:
+      plugin: "recovery_behaviors::RotateInPlaceBehavior"
+      frequency: 10.0
+      tolerance: 0.3
+      trajectory_generator_name: "differential_drive_rotate_inplace"
+
+trajectory_generators:
+  ros__parameters:
+    # Extend the lower face to 5 cm above mapped ground, including leg space.
+    # The configured upper face is relative to the assumed body center.
+    ground_cuboid_clearance: 0.05
+    ground_search_radius: 0.6
+    ground_max_base_height: 1.0
+    plugins: ["differential_drive_simple", "differential_drive_rotate_inplace", "differential_drive_rotate_shortest_angle"]
+    differential_drive_rotate_shortest_angle:
+      plugin: "trajectory_generators::DDRotateInplaceTheory"
+      controller_frequency: 10.0
+      rotation_speed: 0.5
+      cuboid:
+        flb: [0.70, 0.40, -0.46]
+        frb: [0.70, -0.40, -0.46]
+        flt: [0.70, 0.40, 0.3]
+        frt: [0.70, -0.40, 0.3]
+        blb: [-0.70, 0.40, -0.46]
+        brb: [-0.70, -0.40, -0.46]
+        blt: [-0.70, 0.40, 0.3]
+        brt: [-0.70, -0.40, 0.3]
+    differential_drive_rotate_inplace:
+      plugin: "trajectory_generators::DDRotateInplaceTheory"
+      controller_frequency: 10.0
+      rotation_speed: 0.5
+      cuboid:
+        flb: [0.70, 0.40, -0.46]
+        frb: [0.70, -0.40, -0.46]
+        flt: [0.70, 0.40, 0.3]
+        frt: [0.70, -0.40, 0.3]
+        blb: [-0.70, 0.40, -0.46]
+        brb: [-0.70, -0.40, -0.46]
+        blt: [-0.70, 0.40, 0.3]
+        brt: [-0.70, -0.40, 0.3]
+    differential_drive_simple:
+      plugin: "trajectory_generators::DDSimpleTrajectoryGeneratorTheory"
+      max_vel_x: 0.2
+      min_vel_x: 0.05
+      max_vel_theta: 0.3
+      min_vel_theta: 0.1
+      acc_lim_x: 0.3
+      acc_lim_theta: 0.8
+      deceleration_ratio: 2.0
+      use_motor_constraint: false
+      controller_frequency: 10.0
+      sim_time: 2.0
+      linear_x_sample: 5.0
+      angular_z_sample: 10.0
+      sim_granularity: 0.05
+      angular_sim_granularity: 0.025
+      cuboid:
+        flb: [0.70, 0.40, -0.46]
+        frb: [0.70, -0.40, -0.46]
+        flt: [0.70, 0.40, 0.3]
+        frt: [0.70, -0.40, 0.3]
+        blb: [-0.70, 0.40, -0.46]
+        brb: [-0.70, -0.40, -0.46]
+        blt: [-0.70, 0.40, 0.3]
+        brt: [-0.70, -0.40, 0.3]
+
+mpc_critics:
+  ros__parameters:
+    plugins: ["collision", "stick_path", "pure_pursuit", "toward_global_plan", "collision_rotate", "collision_rotate_shortest", "prefer_rotate_shortest"]
+    collision:
+      plugin: "mpc_critics::CollisionModel"
+      trajectory_generator: differential_drive_simple
+      weight: 1.0
+    stick_path:
+      plugin: "mpc_critics::StickPathModel"
+      trajectory_generator: differential_drive_simple
+      weight: 0.1
+    pure_pursuit:
+      plugin: "mpc_critics::PurePursuitModel"
+      trajectory_generator: differential_drive_simple
+      translation_weight: 1.0
+      orientation_weight: 0.01
+    toward_global_plan:
+      plugin: "mpc_critics::TowardGlobalPlanModel"
+      trajectory_generator: differential_drive_simple
+      weight: 1.0
+    collision_rotate:
+      plugin: "mpc_critics::CollisionModel"
+      trajectory_generator: differential_drive_rotate_inplace
+      weight: 1.0
+    collision_rotate_shortest:
+      plugin: "mpc_critics::CollisionModel"
+      trajectory_generator: differential_drive_rotate_shortest_angle
+      weight: 1.0
+    prefer_rotate_shortest:
+      plugin: "mpc_critics::ShortestAngleModel"
+      trajectory_generator: differential_drive_rotate_shortest_angle
+      weight: 1.0
+
+perception_3d_local:
+  ros__parameters:
+    global_frame: "map"
+    robot_base_frame: "base_link"
+    max_obstacle_distance: 9999.0
+    inscribed_radius: 0.5
+    inflation_descending_rate: 2.0
+    inflation_radius: 1.5
+    sensors_collected_frequency: 10.0
+    plugins: ["map", "path_blocked_strategy", "lidar"]
+    map:
+      plugin: "perception_3d::StaticLayer"
+      is_local_planner: true
+      mapping_mode: false
+      map_topic: "mapcloud"
+      ground_topic: "mapground"
+    path_blocked_strategy:
+      plugin: "perception_3d::PathBlockedStrategy"
+      check_radius: 0.3
+    lidar:
+      plugin: "perception_3d::MultiLayerSpinningLidar"
+      is_local_planner: true
+      topic: "/lidar_points"
+      # Fixed body-frame crop for both live and bag data. With base_link 0.5 m
+      # above ground, z < -0.3 m ignores obstacles below approximately 0.2 m.
+      use_ground_reference: false
+      ground_search_radius: 0.6
+      ground_max_base_height: 1.0
+      local_voxel_size: 0.05
+      # Live and bag clouds share this filter before voxel/map transforms.
+      # About 1 m body length, plus 15 cm at each end for moving body/leg returns.
+      # Side allowance is 2 cm; collision cuboids extend beyond this excluded volume.
+      self_filter_min: [-0.65, -0.38, -1.0]
+      self_filter_max: [0.65, 0.38, 0.30]
+      # From the active four-MID360 extrinsics (metres). Zero-range samples
+      # are transformed to these positions by the merged-cloud driver.
+      zero_return_origins: [-0.466, 0.0, 0.035, -0.411, 0.0, -0.056,
+                            0.433, 0.0, -0.055, 0.444, 0.0, 0.054]
+      pub_gbl_marking_for_visualization: false
+      # ros1_bridge subscribes to every ROS 2 topic in bridge-all mode. Keep
+      # this large per-scan debug cloud disabled unless it is being inspected.
+      pub_current_observation_for_visualization: false
+      vertical_FOV_top: 15.0
+      vertical_FOV_bottom: -15.0
+      scan_effective_positive_start: 30.0
+      scan_effective_positive_end: 180.0
+      scan_effective_negative_start: -30.0
+      scan_effective_negative_end: -180.0
+      resolution: 0.05
+      height_resolution: 0.05
+      # Heights are relative to base_link when use_ground_reference is false.
+      marking_height: 1.5
+      marking_minimum_height: -0.30
+      perception_window_size: 3.0
+      segmentation_ignore_ratio: 0.5
+      # The recorded X30 cloud is 10 Hz. Keep expected_sensor_time as the
+      # freshness limit and use the period only for dropped-scan diagnostics.
+      expected_sensor_period: 0.1
+      # Allow two isolated 10 Hz scan losses without stopping the controller.
+      # Larger gaps still fail the freshness check and command zero velocity.
+      expected_sensor_time: 0.3
+
+perception_3d_global:
+  ros__parameters:
+    global_frame: "map"
+    robot_base_frame: "base_link"
+    max_obstacle_distance: 9999.0
+    inscribed_radius: 0.5
+    inflation_descending_rate: 2.0
+    inflation_radius: 1.5
+    sensors_collected_frequency: 10.0
+    plugins: ["map"]
+    dgraph_publish_frequency: 1.0
+    map:
+      plugin: "perception_3d::StaticLayer"
+      is_local_planner: false
+      use_adaptive_connection: false
+      adaptive_connection_number: 20
+      radius_of_ground_connection: 0.5
+      intensity_search_radius: 1.0
+      intensity_search_punish_weight: 0.1
+      static_imposing_radius: 1.5
+      map_topic: "mapcloud"
+      ground_topic: "mapground"
+      support:
+        mapping_mode: false
+        enable_edge_detection: false
+        generate_static_graph: true
+
+global_planner:
+  ros__parameters:
+    # Search down from the elevated base_link to the mapped ground. This is
+    # a search range, not a fixed body-height offset.
+    max_start_ground_drop: 1.0
+    turning_weight: 0.1
+    enable_detail_log: false
+    a_star_expanding_radius: 0.5
+
+dynamic_window_aware_global_planner:
+  ros__parameters:
+    look_ahead_distance: 2.0
+    recompute_frequency: 10.0

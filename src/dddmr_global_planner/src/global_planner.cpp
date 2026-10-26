@@ -105,6 +105,12 @@ void GlobalPlanner::initial(const std::shared_ptr<perception_3d::Perception3D_RO
   this->get_parameter("find_start_tolerance", find_start_tolerance_);
   RCLCPP_INFO(this->get_logger(), "find_start_tolerance: %.2f", find_start_tolerance_);    
 
+  // Enable a bounded downward search when the localization frame is above
+  // the ground surface. Zero preserves the original search for other robots.
+  declare_parameter("max_start_ground_drop", rclcpp::ParameterValue(0.0));
+  this->get_parameter("max_start_ground_drop", max_start_ground_drop_);
+  RCLCPP_INFO(this->get_logger(), "max_start_ground_drop: %.2f", max_start_ground_drop_);
+
   
 
   tf_listener_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -455,7 +461,35 @@ bool GlobalPlanner::getStartGoalID(const geometry_msgs::msg::PoseStamped& start,
   pcl_start.y = start.pose.position.y;
   pcl_start.z = start.pose.position.z;
 
-  if(kdtree_ground_->radiusSearch (pcl_start, find_start_tolerance_, pointIdxRadiusSearch_start, pointRadiusSquaredDistance_start)<1){
+  bool start_found = kdtree_ground_->radiusSearch(
+    pcl_start, find_start_tolerance_, pointIdxRadiusSearch_start,
+    pointRadiusSquaredDistance_start) > 0;
+  if(!start_found && max_start_ground_drop_ > 0.0){
+    // Keep the goal and terrain in 3D, but find the ground below base_link
+    // without assuming a fixed body height. Limit the search to this robot's
+    // configured height range instead of projecting through arbitrary floors.
+    for(double drop = 0.1; drop < max_start_ground_drop_ + 0.1; drop += 0.1){
+      pcl_start.z = start.pose.position.z - std::min(drop, max_start_ground_drop_);
+      pointIdxRadiusSearch_start.clear();
+      pointRadiusSquaredDistance_start.clear();
+      if(kdtree_ground_->radiusSearch(
+          pcl_start, find_start_tolerance_, pointIdxRadiusSearch_start,
+          pointRadiusSquaredDistance_start) > 0){
+        for(const int candidate : pointIdxRadiusSearch_start){
+          const double ground_drop = start.pose.position.z - pcl_ground_->points[candidate].z;
+          if(ground_drop >= 0.0 && ground_drop <= max_start_ground_drop_){
+            pointIdxRadiusSearch_start[0] = candidate;
+            start_found = true;
+            break;
+          }
+        }
+        if(start_found){
+          break;
+        }
+      }
+    }
+  }
+  if(!start_found){
     RCLCPP_WARN(this->get_logger(), "Start is not found.");
     return false;
   }

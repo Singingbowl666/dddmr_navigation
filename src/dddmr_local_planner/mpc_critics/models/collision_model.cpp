@@ -45,6 +45,8 @@ void CollisionModel::onInitialize(){
   node_->declare_parameter(name_ + ".weight", rclcpp::ParameterValue(1.0));
   node_->get_parameter(name_ + ".weight", weight_);
   RCLCPP_INFO(node_->get_logger().get_child(name_), "weight: %.2f", weight_);
+  node_->declare_parameter(name_ + ".log_collisions", false);
+  node_->get_parameter(name_ + ".log_collisions", log_collisions_);
 
 }
 
@@ -135,6 +137,21 @@ double CollisionModel::scoreTrajectory(base_trajectory::Trajectory &traj){
 
       if(x_value<=half_x && y_value<=half_y && z_value<=half_z)
       {
+        if(log_collisions_){
+          const auto pose = tf2::transformToEigen(shared_data_->robot_pose_);
+          const Eigen::Vector3d point_body = pose.inverse() *
+            Eigen::Vector3d(pct_point.x, pct_point.y, pct_point.z);
+          RCLCPP_WARN_THROTTLE(node_->get_logger().get_child(name_), *node_->get_clock(), 500,
+            "Collision: vx=%.3f wz=%.3f step=%u/%u point_map=(%.4f,%.4f,%.4f) "
+            "point_base=(%.4f,%.4f,%.4f) pose_stamp=%d.%09u box_half=(%.4f,%.4f,%.4f) "
+            "box_projection=(%.4f,%.4f,%.4f)",
+            traj.xv_, traj.thetav_, i, traj.getPosesSize(),
+            pct_point.x, pct_point.y, pct_point.z,
+            point_body.x(), point_body.y(), point_body.z(),
+            shared_data_->robot_pose_.header.stamp.sec,
+            shared_data_->robot_pose_.header.stamp.nanosec,
+            half_x, half_y, half_z, x_value, y_value, z_value);
+        }
         return -1.0;
       }
       else{

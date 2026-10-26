@@ -5,7 +5,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from dddmr_sys_core.action import PToPMoveBase
 from geometry_msgs.msg import PoseStamped, PointStamped
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.node import Node
 import time
@@ -66,7 +66,7 @@ def main(args=None):
 
     Nav2d_Goal_Sub = Nav2dGoalSub(node_, action_server_group)
 
-    executor = MultiThreadedExecutor()
+    executor = SingleThreadedExecutor()
     executor.add_node(node_)
     
     
@@ -77,7 +77,7 @@ def main(args=None):
             Nav2d_Goal_Sub.send_goal()
             Nav2d_Goal_Sub.nav2d_goal = []
 
-        rclpy.spin_once(node_, timeout_sec=1.0)
+        executor.spin_once(timeout_sec=1.0)
 
     
 

@@ -27,6 +27,7 @@ find_package(angles REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(base_trajectory REQUIRED)
+find_package(perception_3d REQUIRED)
 find_package(dddmr_sys_core REQUIRED)
 
 find_package(PCL REQUIRED)
@@ -54,6 +55,7 @@ set(dependencies
   pcl_conversions
   angles
   base_trajectory
+  perception_3d
   dddmr_sys_core
 )
 

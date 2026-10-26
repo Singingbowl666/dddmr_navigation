@@ -110,6 +110,8 @@ class Local_Planner : public rclcpp::Node {
       /*For cuboid visualization*/
       visualization_msgs::msg::MarkerArray robot_cuboid_;
       visualization_msgs::msg::Marker marker_edge_;
+      std::vector<geometry_msgs::msg::Point> configured_marker_points_;
+      double ground_cuboid_clearance_, ground_search_radius_, ground_max_base_height_;
 
       /*Original point cloud*/
       pcl::PointCloud<pcl::PointNormal>::Ptr ground_with_normals_;
@@ -165,6 +167,7 @@ class Local_Planner : public rclcpp::Node {
       bool got_odom_;
 
       double xy_goal_tolerance_, yaw_goal_tolerance_;
+      double ground_goal_max_height_;
       double controller_frequency_;
 
       rclcpp::Time control_loop_time_;

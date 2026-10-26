@@ -29,6 +29,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <local_planner/local_planner.h>
+#include <perception_3d/ground_reference.h>
 
 namespace local_planner {
 
@@ -82,6 +83,17 @@ void Local_Planner::initial(
   this->get_parameter("xy_goal_tolerance", xy_goal_tolerance_);
   RCLCPP_INFO(this->get_logger(), "xy_goal_tolerance: %.2f", xy_goal_tolerance_);
 
+  declare_parameter("ground_goal_max_height", rclcpp::ParameterValue(0.0));
+  this->get_parameter("ground_goal_max_height", ground_goal_max_height_);
+  RCLCPP_INFO(this->get_logger(), "ground_goal_max_height: %.2f", ground_goal_max_height_);
+
+  declare_parameter("ground_cuboid_clearance", -1.0);
+  get_parameter("ground_cuboid_clearance", ground_cuboid_clearance_);
+  declare_parameter("ground_search_radius", 0.6);
+  get_parameter("ground_search_radius", ground_search_radius_);
+  declare_parameter("ground_max_base_height", 1.0);
+  get_parameter("ground_max_base_height", ground_max_base_height_);
+
   declare_parameter("yaw_goal_tolerance", rclcpp::ParameterValue(0.3));
   this->get_parameter("yaw_goal_tolerance", yaw_goal_tolerance_);
   RCLCPP_INFO(this->get_logger(), "yaw_goal_tolerance: %.2f", yaw_goal_tolerance_);
@@ -104,6 +116,7 @@ void Local_Planner::initial(
   perception_3d_ros_ = perception_3d;
   mpc_critics_ros_ = mpc_critics;
   trajectory_generators_ros_ = trajectory_generators;
+  trajectory_generators_ros_->getSharedDataPtr()->perception_data_ = perception_3d_ros_->getSharedDataPtr();
 
   robot_frame_ = perception_3d_ros_->getGlobalUtils()->getRobotFrame();
   global_frame_ = perception_3d_ros_->getGlobalUtils()->getGblFrame();
@@ -189,6 +202,7 @@ void Local_Planner::parseCuboid(){
     pt.x = p[0];pt.y = p[1];pt.z = p[2];
     marker_edge_.points.push_back(pt);
   }
+  configured_marker_points_ = marker_edge_.points;
 }
 
 void Local_Planner::syncRobotState(nav_msgs::msg::Odometry& odom, ackermann_msgs::msg::AckermannDriveStamped& ackermann_drive_state){
@@ -326,7 +340,14 @@ bool Local_Planner::isGoalReached(){
   double dx = trans_gbl2b_.transform.translation.x - final_pose.pose.position.x;
   double dy = trans_gbl2b_.transform.translation.y - final_pose.pose.position.y;
   double dz = trans_gbl2b_.transform.translation.z - final_pose.pose.position.z;
-  double distance = sqrt(dx*dx + dy*dy + dz*dz);
+  // In ground-goal mode, normal body clearance must not count as position
+  // error. Keep a vertical bound so a goal on another level does not count
+  // as reached just because its XY coordinates match.
+  if(ground_goal_max_height_ > 0.0){
+    return std::hypot(dx, dy) < xy_goal_tolerance_ &&
+      dz >= -xy_goal_tolerance_ && dz <= ground_goal_max_height_;
+  }
+  double distance = std::sqrt(dx*dx + dy*dy + dz*dz);
   if(xy_goal_tolerance_>distance)
     return true;
   else
@@ -378,6 +399,24 @@ void Local_Planner::updateGlobalPose(){
     RCLCPP_DEBUG(this->get_logger().get_child(name_), "%s: %s", name_.c_str(),e.what());
   }
   robot_cuboid_.markers.clear();
+  if(ground_cuboid_clearance_ >= 0.0 && marker_edge_.header.stamp != trans_gbl2b_.header.stamp){
+    const auto data = perception_3d_ros_->getSharedDataPtr();
+    std::unique_lock<std::recursive_mutex> lock(data->ground_kdtree_cb_mutex_);
+    perception_3d::GroundReference ground;
+    const Eigen::Affine3d pose = tf2::transformToEigen(trans_gbl2b_);
+    if(data->is_static_layer_ready_ && data->pcl_ground_ && data->kdtree_ground_ &&
+      perception_3d::estimateGroundReference(*data->kdtree_ground_, *data->pcl_ground_,
+        pose.translation(), ground, ground_search_radius_, ground_max_base_height_))
+    {
+      pcl::PointCloud<pcl::PointXYZ> cuboid;
+      for(const auto & p : configured_marker_points_){
+        cuboid.push_back(pcl::PointXYZ(p.x, p.y, p.z));
+      }
+      if(perception_3d::alignCuboidBottom(cuboid, pose, ground, ground_cuboid_clearance_)){
+        for(size_t i = 0; i < cuboid.size(); ++i){marker_edge_.points[i].z = cuboid[i].z;}
+      }
+    }
+  }
   marker_edge_.header.stamp = trans_gbl2b_.header.stamp;
   robot_cuboid_.markers.push_back(marker_edge_);
   pub_robot_cuboid_->publish(robot_cuboid_);

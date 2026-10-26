@@ -1,0 +1,51 @@
+<launch>
+  <!-- The localization source is external ig_loc. Do not start mcl_3dl here. -->
+  <arg name="map_pcd" default="$(find-pkg-share global_planner)/data/map.pcd" />
+  <arg name="ground_pcd" default="$(find-pkg-share global_planner)/data/ground.pcd" />
+  <arg name="use_sim_time" default="false" />
+  <!-- Keep initial tests disconnected from the robot motion controller. -->
+  <arg name="cmd_vel_topic" default="/dddmr_cmd_vel_test" />
+  <!-- Live drivers normally publish this TF; bag playback needs a fallback. -->
+  <arg name="publish_base_to_lidar" default="true" />
+
+  <!-- Publish this in ROS 2 so RViz and the planners do not depend on
+       ros1_bridge retaining an earlier /tf_static sample. -->
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="map_to_odom_dddmr"
+        args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id map --child-frame-id odom" />
+
+  <!-- The X30 Livox driver applies each MID360 extrinsic while merging the
+       four lidars, then publishes the combined cloud in lidar_link.  Its
+       normal bringup defines lidar_link coincident with base_link, but that
+       TF is absent when testing from a bag with the live driver stopped. -->
+  <node if="$(var publish_base_to_lidar)" pkg="tf2_ros" exec="static_transform_publisher" name="base_to_lidar_dddmr"
+        args="--x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id base_link --child-frame-id lidar_link" />
+
+  <!-- Static navigation map. Both files must use the ig_loc map frame. -->
+  <node pkg="mcl_3dl" exec="pcl_publisher" output="screen" respawn="false">
+    <param from="$(find-pkg-share mcl_3dl)/config/pcl_publisher.yaml" />
+    <param name="map_dir" value="$(var map_pcd)" />
+    <param name="ground_dir" value="$(var ground_pcd)" />
+    <param name="global_frame" value="map" />
+    <param name="use_sim_time" value="$(var use_sim_time)" />
+  </node>
+
+  <!-- DDDMR global planner. It consumes mapcloud/mapground and map->base_link TF. -->
+  <node pkg="global_planner" exec="global_planner_node" output="screen" respawn="false">
+    <param from="$(find-pkg-share p2p_move_base)/config/x30_ig_loc_navigation.yaml" />
+    <param name="use_sim_time" value="$(var use_sim_time)" />
+  </node>
+
+  <!-- This node embeds the local planner, perception and cmd_vel publisher. -->
+  <node pkg="p2p_move_base" exec="p2p_move_base_node" output="screen" respawn="false">
+    <param from="$(find-pkg-share p2p_move_base)/config/x30_ig_loc_navigation.yaml" />
+    <param name="use_sim_time" value="$(var use_sim_time)" />
+    <remap from="/cmd_vel" to="$(var cmd_vel_topic)" />
+  </node>
+
+  <node pkg="p2p_move_base" exec="clicked2goal.py" name="clicked2goal" output="screen" respawn="false" />
+
+  <node pkg="rviz2" exec="rviz2" name="rviz2" output="screen"
+        args="-d $(find-pkg-share p2p_move_base)/rviz/p2p_move_base_localization.rviz">
+    <param name="use_sim_time" value="$(var use_sim_time)" />
+  </node>
+</launch>

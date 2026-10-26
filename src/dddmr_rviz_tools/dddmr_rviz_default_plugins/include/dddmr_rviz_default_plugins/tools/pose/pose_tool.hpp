@@ -95,6 +95,7 @@ protected:
   std::shared_ptr<rviz_rendering::ViewportProjectionFinder> projection_finder_;
 
 private:
+  bool pickPoint(rviz_common::ViewportMouseEvent & event, Ogre::Vector3 & position);
   int processMouseLeftButtonPressed(bool success, Ogre::Vector3 pose);
   int processMouseMoved(std::pair<bool, Ogre::Vector3> xy_plane_intersection);
   int processMouseLeftButtonReleased();

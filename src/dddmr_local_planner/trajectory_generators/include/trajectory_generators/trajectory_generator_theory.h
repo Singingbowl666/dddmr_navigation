@@ -68,6 +68,10 @@ class TrajectoryGeneratorTheory{
 
   protected:
 
+    bool prepareCuboid(const pcl::PointCloud<pcl::PointXYZ> & configured);
+    pcl::PointCloud<pcl::PointXYZ> effective_cuboid_;
+    double ground_cuboid_clearance_, ground_search_radius_, ground_max_base_height_;
+
     rclcpp::Node::SharedPtr node_;
     //@onInitialize is used to read ros param for the generator
     virtual void onInitialize() = 0;

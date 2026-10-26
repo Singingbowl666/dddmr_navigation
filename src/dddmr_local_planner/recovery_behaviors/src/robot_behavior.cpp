@@ -47,6 +47,7 @@ void RobotBehavior::initialize(const std::string name,
   perception_3d_ros_ = perception_3d;
   mpc_critics_ros_ = mpc_critics;
   trajectory_generators_ros_ = trajectory_generators;
+  trajectory_generators_ros_->getSharedDataPtr()->perception_data_ = perception_3d_ros_->getSharedDataPtr();
   name_ = name;
   onInitialize();
 }

@@ -29,6 +29,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <global_planner/dynamic_window_aware_global_planner.h>
+#include <thread>
 
 int main(int argc, char **argv)
 {
@@ -37,14 +38,22 @@ int main(int argc, char **argv)
   auto perception_3d = std::make_shared<perception_3d::Perception3D_ROS>("perception_3d_global");
   auto global_planner = std::make_shared<global_planner::GlobalPlanner>("global_planner");
   auto dwa_global_planner = std::make_shared<global_planner::DWA_GlobalPlanner>("dynamic_window_aware_global_planner");
-  rclcpp::executors::MultiThreadedExecutor executor;
-  executor.add_node(perception_3d);
+  rclcpp::executors::MultiThreadedExecutor worker_executor;
+  rclcpp::executors::SingleThreadedExecutor action_executor;
+  worker_executor.add_node(perception_3d);
   perception_3d->initial();
-  executor.add_node(global_planner);
+  worker_executor.add_node(global_planner);
   global_planner->initial(perception_3d);
-  executor.add_node(dwa_global_planner);
+  // Serialize the /get_dwa_plan action Waitable while keeping map processing
+  // and planning callbacks on the multithreaded executor.
+  action_executor.add_node(dwa_global_planner);
   dwa_global_planner->initial(perception_3d, global_planner);
-  executor.spin();
+  std::thread action_thread([&action_executor]() {action_executor.spin();});
+  worker_executor.spin();
+  action_executor.cancel();
+  if (action_thread.joinable()) {
+    action_thread.join();
+  }
 
   rclcpp::shutdown();
 

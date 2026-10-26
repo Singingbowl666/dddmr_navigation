@@ -29,6 +29,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <trajectory_generators/trajectory_generator_theory.h>
+#include <perception_3d/ground_reference.h>
 
 namespace trajectory_generators
 {
@@ -40,12 +41,42 @@ TrajectoryGeneratorTheory::TrajectoryGeneratorTheory(){
 void TrajectoryGeneratorTheory::initialize(const std::string name, const rclcpp::Node::WeakPtr& weak_node){
   name_ = name;
   node_ = weak_node.lock();
+  for(const auto & parameter : std::vector<std::pair<std::string, double>>{
+      {"ground_cuboid_clearance", -1.0}, {"ground_search_radius", 0.6},
+      {"ground_max_base_height", 1.0}})
+  {
+    if(!node_->has_parameter(parameter.first)){
+      node_->declare_parameter(parameter.first, parameter.second);
+    }
+  }
+  node_->get_parameter("ground_cuboid_clearance", ground_cuboid_clearance_);
+  node_->get_parameter("ground_search_radius", ground_search_radius_);
+  node_->get_parameter("ground_max_base_height", ground_max_base_height_);
   configurateActuatorType();
   onInitialize();
 }
 
 void TrajectoryGeneratorTheory::setSharedData(std::shared_ptr<trajectory_generators::TrajectoryGeneratorSharedData> shared_data){
   shared_data_ = shared_data;
+}
+
+bool TrajectoryGeneratorTheory::prepareCuboid(const pcl::PointCloud<pcl::PointXYZ> & configured)
+{
+  effective_cuboid_ = configured;
+  if(ground_cuboid_clearance_ < 0.0){return true;}
+  const auto data = shared_data_->perception_data_;
+  if(!data){return false;}
+  std::unique_lock<std::recursive_mutex> lock(data->ground_kdtree_cb_mutex_);
+  if(!data->is_static_layer_ready_ || !data->pcl_ground_ || !data->kdtree_ground_){return false;}
+  const Eigen::Affine3d pose = tf2::transformToEigen(shared_data_->robot_pose_);
+  perception_3d::GroundReference ground;
+  if(!perception_3d::estimateGroundReference(
+      *data->kdtree_ground_, *data->pcl_ground_, pose.translation(), ground,
+      ground_search_radius_, ground_max_base_height_))
+  {
+    return false;
+  }
+  return perception_3d::alignCuboidBottom(effective_cuboid_, pose, ground, ground_cuboid_clearance_);
 }
 
 void TrajectoryGeneratorTheory::expertScoring(std::vector<base_trajectory::Trajectory>& accepted_trajectories,

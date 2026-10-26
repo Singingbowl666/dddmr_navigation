@@ -165,6 +165,7 @@ class MultiLayerSpinningLidar: public Sensor{
     double perception_window_size_; 
     double segmentation_ignore_ratio_;
     bool pub_gbl_marking_for_visualization_;
+    bool pub_current_observation_for_visualization_;
     int euclidean_cluster_extraction_min_cluster_size_;
     int euclidean_cluster_minimum_accepted_size_;
     double euclidean_cluster_extraction_tolerance_;
@@ -190,6 +191,10 @@ class MultiLayerSpinningLidar: public Sensor{
 
     /*For local planner switch*/
     bool is_local_planner_;
+    bool use_ground_reference_, ground_reference_valid_;
+    double ground_search_radius_, ground_max_base_height_, local_voxel_size_;
+    std::vector<double> self_filter_min_, self_filter_max_;
+    std::vector<double> zero_return_origins_;
 
     /*For isCurrent feature. Used to protect sensor broken*/
     rclcpp::Time last_observation_time_;
@@ -198,6 +203,7 @@ class MultiLayerSpinningLidar: public Sensor{
     std::list<pcl::PointCloud<pcl::PointXYZ>> pcl_stitcher_;
 
     std_msgs::msg::Header last_sensor_receiving_time_;
+    double expected_sensor_period_;
 
     bool observation_clear_;
     

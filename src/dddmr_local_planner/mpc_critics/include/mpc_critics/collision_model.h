@@ -43,6 +43,7 @@ class CollisionModel: public ScoringModel{
   protected:
 
     virtual void onInitialize();
+    bool log_collisions_ = false;
 };
 
 }//end of name space
