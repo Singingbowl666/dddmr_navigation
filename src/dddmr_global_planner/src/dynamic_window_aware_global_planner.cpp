@@ -284,6 +284,12 @@ void DWA_GlobalPlanner::determineDWAPlan(){
         start.pose.position.x, start.pose.position.y, start.pose.position.z);
 
   nav_msgs::msg::Path dwa_path = global_planner_->makeROSPlan(start, dwa_goal);
+  if(dwa_path.poses.empty()){
+    // A blocked local connection must not become a disconnected suffix of the
+    // original path. Keep recomputing so removal of the obstacle can recover.
+    global_dwa_path_ = dwa_path;
+    return;
+  }
   for(size_t i=dwa_pivot; i<pcl_global_path_->points.size(); i++){
     dwa_path.poses.push_back(global_path_.poses[i]);
   }

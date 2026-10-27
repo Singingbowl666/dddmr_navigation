@@ -148,6 +148,10 @@ def main():
     try:
         config = copy.deepcopy(yaml.safe_load((Path(__file__).resolve().parents[1] /
             "src/dddmr_p2p_move_base/config/x30_ig_loc_navigation.yaml").read_text()))
+        # This fixture holds yaw fixed to isolate local height filtering and
+        # arrival. Dynamic detours require integrated yaw/odometry and are
+        # exercised separately by test_x30_obstacle_avoidance.py.
+        config['perception_3d_global']['ros__parameters']['plugins'] = ['map']
         if args.obstacles:
             config['perception_3d_local']['ros__parameters']['lidar']['pub_current_observation_for_visualization'] = True
         else:

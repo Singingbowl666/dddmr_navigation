@@ -11,7 +11,7 @@ p2p_move_base:
     oscillation_patience: 15.0
     controller_patience: 10.0
     no_plan_retry_num: 10
-    waiting_patience: 10.0
+    waiting_patience: 10.0   # waiting time if there is no path to goal
     main_trajectory_generator: "differential_drive_simple"
 
 global_plan_manager:
@@ -26,6 +26,9 @@ local_planner:
     backward_prune: 1.0
     heading_tracking_distance: 0.5
     heading_align_angle: 0.5
+    # Execute a critics-approved alternative even when the reference path is blocked.
+    # Collision rejection, sensor freshness and explicit replanning remain enforced.
+    allow_valid_trajectory_when_path_blocked: true
     prune_plane_timeout: 3.0
     # Goals remain on the ground; arrival compares horizontal distance to
     # base_link and allows varying body clearance up to 1 m.
@@ -224,7 +227,7 @@ perception_3d_global:
     inflation_descending_rate: 2.0
     inflation_radius: 1.5
     sensors_collected_frequency: 10.0
-    plugins: ["map"]
+    plugins: ["map", "lidar"]
     dgraph_publish_frequency: 1.0
     map:
       plugin: "perception_3d::StaticLayer"
@@ -241,6 +244,58 @@ perception_3d_global:
         mapping_mode: false
         enable_edge_detection: false
         generate_static_graph: true
+    # Live merged MID360 observations update the graph used by path replanning.
+    # Use mapped ground for graph projection, with body/zero-return filters. Angular masks
+    # cover the merged cloud; this is not a single scanner with a front blind cone.
+    lidar:
+      plugin: perception_3d::MultiLayerSpinningLidar
+      is_local_planner: false
+      topic: /lidar_points
+      use_ground_reference: true
+      ground_search_radius: 0.6
+      ground_max_base_height: 1.0
+      local_voxel_size: 0.05
+      self_filter_min:
+      - -0.65
+      - -0.38
+      - -1.0
+      self_filter_max:
+      - 0.65
+      - 0.38
+      - 0.3
+      zero_return_origins:
+      - -0.466
+      - 0.0
+      - 0.035
+      - -0.411
+      - 0.0
+      - -0.056
+      - 0.433
+      - 0.0
+      - -0.055
+      - 0.444
+      - 0.0
+      - 0.054
+      pub_gbl_marking_for_visualization: false
+      pub_current_observation_for_visualization: false
+      vertical_FOV_top: 90.0
+      vertical_FOV_bottom: -90.0
+      scan_effective_positive_start: 0.0
+      scan_effective_positive_end: 180.0
+      scan_effective_negative_start: 0.0
+      scan_effective_negative_end: -180.0
+      height_resolution: 0.05
+      marking_height: 1.5
+      marking_minimum_height: -0.3
+      perception_window_size: 5.0
+      segmentation_ignore_ratio: 1.1
+      expected_sensor_period: 0.1
+      expected_sensor_time: 0.3
+      xy_resolution: 0.05
+      euclidean_cluster_extraction_tolerance: 0.1
+      euclidean_cluster_extraction_min_cluster_size: 1
+      euclidean_cluster_minimum_accepted_size: 10
+
 
 global_planner:
   ros__parameters:

@@ -29,6 +29,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include <local_planner/local_planner.h>
+#include <local_planner/blocked_path_policy.h>
 #include <perception_3d/ground_reference.h>
 
 namespace local_planner {
@@ -74,6 +75,11 @@ void Local_Planner::initial(
   declare_parameter("heading_align_angle", rclcpp::ParameterValue(0.5));
   this->get_parameter("heading_align_angle", heading_align_angle_);
   RCLCPP_INFO(this->get_logger(), "heading_align_angle: %.2f", heading_align_angle_);
+
+  declare_parameter("allow_valid_trajectory_when_path_blocked", false);
+  get_parameter("allow_valid_trajectory_when_path_blocked", allow_valid_trajectory_when_path_blocked_);
+  RCLCPP_INFO(this->get_logger(), "allow_valid_trajectory_when_path_blocked: %s",
+    allow_valid_trajectory_when_path_blocked_ ? "true" : "false");
 
   declare_parameter("prune_plane_timeout", rclcpp::ParameterValue(3.0));
   this->get_parameter("prune_plane_timeout", prune_plane_timeout_);
@@ -672,28 +678,48 @@ dddmr_sys_core::PlannerState Local_Planner::computeVelocityCommand(std::string t
     RCLCPP_WARN(this->get_logger().get_child(name_), "Local planner control time exceed expect time: %.2f but is %.2f", 1./controller_frequency_, t_diff.seconds());
   }
   
-  //@Loop opinions
-  std::vector<perception_3d::PerceptionOpinion> opinions = perception_3d_ros_->getStackedPerception()->getOpinions();
-  for(auto opinion_it=opinions.begin(); opinion_it!=opinions.end();opinion_it++){
-    if((*opinion_it)==perception_3d::PATH_BLOCKED_WAIT){
-      RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000, "Found the prune plan is blocked, go to wait state.");
+  // A blocked reference path is not a collision verdict for an alternative
+  // trajectory. Only candidates already selected by the critics reach here.
+  bool path_blocked_wait = false;
+  bool path_blocked_replanning = false;
+  const auto opinions = perception_3d_ros_->getStackedPerception()->getOpinions();
+  for (const auto opinion : opinions) {
+    path_blocked_wait |= opinion == perception_3d::PATH_BLOCKED_WAIT;
+    path_blocked_replanning |= opinion == perception_3d::PATH_BLOCKED_REPLANNING;
+  }
+
+  const auto decision = detail::selectTrajectoryDecision(
+    path_blocked_wait, path_blocked_replanning,
+    allow_valid_trajectory_when_path_blocked_, best_traj.cost_, best_traj.getPosesSize());
+  switch (decision) {
+    case detail::TrajectoryDecision::Replan:
+      RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000,
+        "Perception requests path replanning.");
+      return dddmr_sys_core::PATH_BLOCKED_REPLANNING;
+    case detail::TrajectoryDecision::Wait:
+      RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000,
+        "Reference path blocked, waiting: generator=%s candidates=%zu accepted=%zu best_cost=%.3f poses=%u allow_valid=%s",
+        traj_gen_name.c_str(), trajectories_->size(), accepted_trajectories_.size(),
+        best_traj.cost_, best_traj.getPosesSize(),
+        allow_valid_trajectory_when_path_blocked_ ? "true" : "false");
       return dddmr_sys_core::PATH_BLOCKED_WAIT;
-    }
-    else if((*opinion_it)==perception_3d::PATH_BLOCKED_REPLANNING){
-      RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000, "Found the prune plan is blocked, go to replanning.");
-      return dddmr_sys_core::PATH_BLOCKED_REPLANNING;      
-    }
+    case detail::TrajectoryDecision::NoValidTrajectory:
+      RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000,
+        "All trajectories are rejected by critics or invalid: generator=%s candidates=%zu accepted=%zu best_cost=%.3f poses=%u",
+        traj_gen_name.c_str(), trajectories_->size(), accepted_trajectories_.size(),
+        best_traj.cost_, best_traj.getPosesSize());
+      return dddmr_sys_core::ALL_TRAJECTORIES_FAIL;
+    case detail::TrajectoryDecision::Execute:
+      if (path_blocked_wait) {
+        RCLCPP_INFO_THROTTLE(this->get_logger().get_child(name_), *clock_, 1000,
+          "Reference path blocked, executing valid trajectory: generator=%s candidates=%zu accepted=%zu cost=%.3f poses=%u vx=%.3f vy=%.3f wz=%.3f",
+          traj_gen_name.c_str(), trajectories_->size(), accepted_trajectories_.size(),
+          best_traj.cost_, best_traj.getPosesSize(), best_traj.xv_, best_traj.yv_, best_traj.thetav_);
+      }
+      return dddmr_sys_core::TRAJECTORY_FOUND;
   }
+  return dddmr_sys_core::ALL_TRAJECTORIES_FAIL;
 
-
-  if(best_traj.cost_<0){
-    RCLCPP_WARN_THROTTLE(this->get_logger().get_child(name_), *clock_, 5000, "All trajectories are rejected by critics.");
-    return dddmr_sys_core::ALL_TRAJECTORIES_FAIL;
-  }
-  else{
-    return dddmr_sys_core::TRAJECTORY_FOUND;
-  }
-  
   //@ Reset kd tree/observations because it is shared_ptr and copied from perception_ros
   mpc_critics_ros_->getSharedDataPtr()->pcl_perception_.reset(new pcl::PointCloud<pcl::PointXYZI>());
   mpc_critics_ros_->getSharedDataPtr()->pcl_perception_kdtree_.reset(new pcl::KdTreeFLANN<pcl::PointXYZI>());

@@ -371,8 +371,9 @@ void MultiLayerSpinningLidar::cbSensor(const sensor_msgs::msg::PointCloud2::Shar
   pass.filter (*pcl_msg_);
   const size_t window_points = pcl_msg_->size();
   // Remove returns from the robot's current occupied volume in body coordinates,
-  // before voxel averaging or transformation to the map frame.
-  if(is_local_planner_ && (self_filter_min_.size() == 3 || !zero_return_origins_.empty())){
+  // before voxel averaging or transformation to the map frame. Both local
+  // collision checks and the global dynamic graph need this same filtering.
+  if(self_filter_min_.size() == 3 || !zero_return_origins_.empty()){
     pcl::PointCloud<pcl::PointXYZ> external;
     external.header = pcl_msg_->header;
     external.reserve(pcl_msg_->size());
@@ -491,6 +492,22 @@ void MultiLayerSpinningLidar::updateLethalPointCloud(){
 
 void MultiLayerSpinningLidar::updateDGraphInWindow(){
 
+  // Elevated body frames must update the mapped ground, rather than a slice
+  // through base_link. Callers already hold the shared ground-cloud mutex.
+  GroundReference ground;
+  if(use_ground_reference_){
+    ground_reference_valid_ = estimateGroundReference(
+      *shared_data_->kdtree_ground_, *shared_data_->pcl_ground_,
+      Eigen::Vector3d(trans_gbl2b_.transform.translation.x,
+        trans_gbl2b_.transform.translation.y, trans_gbl2b_.transform.translation.z),
+      ground, ground_search_radius_, ground_max_base_height_);
+    if(!ground_reference_valid_){
+      RCLCPP_WARN_THROTTLE(node_->get_logger().get_child(name_), *clock_, 2000,
+        "No supported ground below base_link; global obstacle graph is invalid");
+      return;
+    }
+  }
+
   //@ all cluster examined, rebuild kdtree for clearing
   pct_marking_->updateKDTree();
   
@@ -522,7 +539,10 @@ void MultiLayerSpinningLidar::updateDGraphInWindow(){
   std::vector<pcl::index_t> idx_ground_filtered;
   shared_data_->kdtree_ground_->radiusSearch(robot_position, 2*perception_window_size_, idx_ground, sqdist_ground);
   for (auto point_idx : idx_ground) {
-    if(fabs(shared_data_->pcl_ground_->points[point_idx].z - robot_position.z)<0.2)
+    const auto & point = shared_data_->pcl_ground_->points[point_idx];
+    const double reference_z = use_ground_reference_ ?
+      ground.heightAt(point.x, point.y) : robot_position.z;
+    if(fabs(point.z - reference_z)<0.2)
       idx_ground_filtered.push_back(point_idx);
   }
 
@@ -549,6 +569,20 @@ void MultiLayerSpinningLidar::selfMark(){
 
   if(!shared_data_->isAllLayersBeenReset()){
     return;
+  }
+
+  GroundReference ground;
+  if(use_ground_reference_){
+    ground_reference_valid_ = estimateGroundReference(
+      *shared_data_->kdtree_ground_, *shared_data_->pcl_ground_,
+      Eigen::Vector3d(trans_gbl2b_.transform.translation.x,
+        trans_gbl2b_.transform.translation.y, trans_gbl2b_.transform.translation.z),
+      ground, ground_search_radius_, ground_max_base_height_);
+    if(!ground_reference_valid_){
+      RCLCPP_WARN_THROTTLE(node_->get_logger().get_child(name_), *clock_, 2000,
+        "No supported ground below base_link; global obstacle observation is invalid");
+      return;
+    }
   }
 
   if(pcl_msg_->points.size()<=5){
@@ -662,7 +696,21 @@ void MultiLayerSpinningLidar::selfMark(){
       coefficients->values[3] = d;
       */
       pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
-      transformToPlaneEquation(trans_gbl2b_, coefficients, Eigen::Vector3d::UnitZ());
+      if(use_ground_reference_){
+        // Project to terrain height, not the elevated body plane, so the 3D
+        // nearest-distance queries from ground graph nodes see this obstacle.
+        const double ground_z = mappedGroundHeight(ground,
+          *shared_data_->kdtree_ground_, *shared_data_->pcl_ground_, centroid.x, centroid.y);
+        coefficients->values.resize(4);
+        coefficients->values[0] = -ground.slope_x;
+        coefficients->values[1] = -ground.slope_y;
+        coefficients->values[2] = 1.0;
+        coefficients->values[3] = ground.slope_x * centroid.x +
+          ground.slope_y * centroid.y - ground_z;
+      }
+      else{
+        transformToPlaneEquation(trans_gbl2b_, coefficients, Eigen::Vector3d::UnitZ());
+      }
       //@ store the cluster in marking
       //@ consider rounding problem, we have to convert the centroid coordinate back by resolution
       pcl::PointXYZ voxelized_centroid;
@@ -1164,7 +1212,7 @@ bool MultiLayerSpinningLidar::isCurrent(){
   
   auto time_diff = (clock_->now() - last_observation_time_).seconds();
   if(time_diff > expected_sensor_time_ ||
-    (is_local_planner_ && use_ground_reference_ && !ground_reference_valid_))
+    (use_ground_reference_ && !ground_reference_valid_))
     current_ = false;
   else
     current_ = true;

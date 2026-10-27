@@ -169,6 +169,7 @@ class Local_Planner : public rclcpp::Node {
       double xy_goal_tolerance_, yaw_goal_tolerance_;
       double ground_goal_max_height_;
       double controller_frequency_;
+      bool allow_valid_trajectory_when_path_blocked_ = false;
 
       rclcpp::Time control_loop_time_;
       

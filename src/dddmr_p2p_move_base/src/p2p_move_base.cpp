@@ -559,6 +559,7 @@ bool P2PMoveBase::executeCycle(const std::shared_ptr<rclcpp_action::ServerGoalHa
         return false;
       }
       else if(PS == dddmr_sys_core::PlannerState::ALL_TRAJECTORIES_FAIL){
+        publishZeroVelocity();
         //At least implement last_valid_control_ timeout to abort here
         //@ this assignment will allow at least one time planning query
         if((clock_->now() - STATE_->last_valid_control_).seconds() > STATE_->controller_patience_){
@@ -583,6 +584,7 @@ bool P2PMoveBase::executeCycle(const std::shared_ptr<rclcpp_action::ServerGoalHa
       }
 
       else if(PS == dddmr_sys_core::PlannerState::PATH_BLOCKED_WAIT){
+        publishZeroVelocity();
         STATE_->waiting_time_ = clock_->now();
         STATE_->setDecision("d_waiting");
         RCLCPP_WARN_THROTTLE(this->get_logger(), *clock_, 5000, "Path conflits, switch to waiting state.");
@@ -704,6 +706,7 @@ bool P2PMoveBase::executeCycle(const std::shared_ptr<rclcpp_action::ServerGoalHa
       }
 
       else if(PS == dddmr_sys_core::PlannerState::ALL_TRAJECTORIES_FAIL){
+        publishZeroVelocity();
         //At least implement last_valid_control_ timeout to abort here
         //@ this assignment will allow at least one time planning query
         if((clock_->now() - STATE_->last_valid_control_).seconds() > STATE_->controller_patience_){

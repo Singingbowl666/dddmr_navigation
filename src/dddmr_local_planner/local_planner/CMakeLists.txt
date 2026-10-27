@@ -160,4 +160,11 @@ install(PROGRAMS
 ament_export_include_directories(include)
 ament_export_libraries(local_planner)
 ament_export_dependencies(${dependencies})
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(blocked_path_policy_test test/blocked_path_policy_test.cpp)
+  target_include_directories(blocked_path_policy_test PRIVATE include)
+  add_test(NAME blocked_path_policy_test COMMAND blocked_path_policy_test)
+endif()
+
 ament_package()
